@@ -1,22 +1,28 @@
+require("dotenv").config();
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
-const { OpenAIApi, Configuration } = require("openai");
-require("dotenv").config();
-// const path = require("path");
-// const { default: axios } = require("axios");
-// const fs = require("fs");
-// const FormData = require('form-data');
+const { default: axios } = require("axios");
+const mongoose = require("mongoose")
+const User = require("./Models/User.js")
+const { prompt } = require("./prompt.js");
+const { fetchBookings } = require("./fetchBookings.js");
 
-const configuration = new Configuration({
-    apiKey: process.env.OPENAI_API_KEY,
-});
-const openai = new OpenAIApi(configuration);
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
-// Убедитесь, что путь к сессии корректный
+mongoose
+    .connect("mongodb://localhost:27017/tapToLink")
+    .then(() => {
+        console.log("Mongodb OK");
+    })
+    .catch((err) => {
+        console.log("Mongodb Error", err);
+    });
+
+// Настройка WhatsApp клиента
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        headless: true, // Убедитесь, что Puppeteer работает в headless режиме
+        headless: true,
     },
 });
 
@@ -24,102 +30,182 @@ client.on("qr", (qr) => {
     qrcode.generate(qr, { small: true });
 });
 
-client.on("authenticated", (session) => {
-    console.log(
-        "Authenticated with session:",
-        session ? JSON.stringify(session) : "undefined"
-    );
+client.on("authenticated", () => {
+    console.log("Authenticated successfully!");
 });
 
 client.on("auth_failure", (msg) => {
     console.error("Authentication failed:", msg);
 });
 
-client.on("disconnected", (reason) => {
-    console.log("Client was logged out:", reason);
-});
-
 client.on("ready", () => {
     console.log("Client is ready!");
 });
 
-const chatHistories = {};
+const activeTimers = new Map(); 
 
-// Системный промпт для установки контекста диалога
-const systemMessage = {
-    role: "system",
-    content:
-        "Здравствуйте! Я бот воды «Тибетская». Чем могу помочь? Заказ воды:Укажите адрес и количество бутылей (минимум 2).Тип бутыли по умолчанию: 18,9 л Поликарбонат. Цены:18,9л—1300₸, 12,5л—900₸. Подтверждение заказа:Пример:‘Ваш заказ: 4 бутыли 18,9 л по адресу [адрес]. Подтверждаете?’При подтверждении:‘Спасибо! Курьер свяжется за час до доставки.’ Доп.товары:Сайт:tibetskaya.kz/accessories. Чистка кулера:От 4000 ₸, скидка 50% при заказе воды. Мы работаем:Пн–Сб:с 8:00–22:00, Вс:выходной. Контакты: Менеджер:87475315558.Если заказали по 16:00 то доставят завтра",
-};
+client.on("message", async (msg) => {
+    const chatId = msg.from;
+    const clientName = msg._data.notifyName
+    const message = msg.body;
 
-// Функция для обращения к GPT и получения ответа
-async function getGPTResponse(chatHistory) {
-    let attempts = 0;
-    const maxAttempts = 3; // Максимум 3 попытки
-    const retryDelay = 3000; // 3 секунды между попытками
+    if (message.toLocaleLowerCase().includes("addGandona")) {
+        const digits = message.match(/\d/g);
+        const result = digits.join("") + "@c.us";
 
-    // Добавляем системное сообщение перед историей
-    const messages = [systemMessage, ...chatHistory];
+        const gandon = await User.findOne({phone: result})
 
-    while (attempts < maxAttempts) {
-        try {
-            const response = await openai.createChatCompletion({
-                model: "gpt-4",
-                messages: messages, // передаем системное сообщение и всю историю диалога
-                max_tokens: 500,
-                temperature: 0.7,
-            });
-            return response.data.choices[0].message.content.trim();
-        } catch (error) {
-            if (error.response && error.response.status === 429) {
-                console.log("Превышен лимит запросов, повторная попытка...");
-                attempts++;
-                await new Promise((resolve) => setTimeout(resolve, retryDelay));
-            } else {
-                console.error("Ошибка при обращении к OpenAI:", error);
-                return "Извините, произошла ошибка при обработке вашего запроса.";
-            }
+        if (gandon && !gandon.isGandon) {
+            gandon.isGandon = true
+            await gandon.save()
+        } else {
+            const newGandon = new User({phone: result, isGandon: true})
+            await newGandon.save()
+        }
+
+    }
+    if (!message || message.trim() === "") {
+        return client.sendMessage(chatId, "Пожалуйста, отправьте сообщение.");
+    }
+
+    // Находим или создаем пользователя
+    let user = await User.findOne({ phone: chatId });
+
+    if (user && user.isGandon) {
+        client.sendMessage(chatId, "Здравствуйте, к сожалению в данный момент нет свободных квартир.")
+        return;
+    }
+
+    if (user.specialPhone) {
+        const phone = message.match(/\d/g);
+        const isBooked = await fetchBookings(phone)
+        if (isBooked) {
+            client.sendMessage(chatId, "Счет на оплату");
+            user.specialPhone = false
+            await user.save()
+            const timer = setTimeout(async () => {
+                console.log(`Удаляем бронь пользователя: ${chatId}`);
+                // await deleteBooking(phone); // Реализуйте deleteBooking отдельно
+                user.specialPhone = false;
+                await user.save();
+                client.sendMessage(chatId, "Ваша бронь была удалена из-за отсутствия ответа.");
+            }, 60000); // 1 минута = 60000 мс
+
+            activeTimers.set(chatId, timer);
+            return
+        } else {
+            client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер по которому забронировали квартиру что бы мы могли проверить");
+            updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер по которому забронировали квартиру что бы мы могли проверить", "assistant");
+            user.specialPhone = true
+            await user.save();
+            return
         }
     }
-    return "Извините, превышен лимит попыток обращения к OpenAI.";
-}
 
-// Функция для сохранения сообщения в историю
-function saveMessageToHistory(chatId, message, role) {
-    if (!chatHistories[chatId]) {
-        chatHistories[chatId] = [];
+    if (!user) {
+        user = new User({ phone: chatId });
+        await user.save();
     }
 
-    // Сохраняем новое сообщение в виде объекта с ролью
-    chatHistories[chatId].push({
-        role: role,
-        content: message,
-    });
-
-    // Оставляем только последние 8 пар сообщений (16 сообщений всего)
-    if (chatHistories[chatId].length > 10) {
-        chatHistories[chatId].shift(); // Удаляем самое старое сообщение, если больше 16
+    if (message.toLocaleLowerCase().includes("не понял")) {
+        client.sendMessage("120363378709019183@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать wa.me//+${chatId.slice(0, -5)}`)
+        return client.sendMessage(chatId, "В скором времени с вами свяжется менеджер")
     }
-}
 
-// Обработка входящих сообщений
-client.on("message", async (msg) => {
+    // if (message.toLocaleLowerCase().includes("оплатил")) {
+    //     client.sendMessage("120363378709019183@g.us", `Клиент ${clientName} с номером '${chatId.slice(0, -5)}' оплатил wa.me//+${chatId.slice(0, -5)}`)
+    //     return client.sendMessage(chatId, "")
+    // }
 
-    if (msg.body) {
-        client.sendMessage("Abok loh")
-        return 
+    // Обновляем массив lastMessages
+    if (message) {
+        updateLastMessages(user, message, "user");
     }
+
+    const answer = await gptResponse(message, user.lastMessages);
+    console.log("answer: ", answer);
     
-    if (msg.body) {
-        saveMessageToHistory(chatId, msg.body, "user");
-        const gptResponse = await getGPTResponse(chatHistories[chatId]);
 
-        client.sendMessage(chatId, gptResponse);
-
-        // Сохраняем ответ бота в историю
-        saveMessageToHistory(chatId, gptResponse, "assistant");
+    if (answer.toLocaleLowerCase().includes("оплатил")) {
+        clearTimeout(activeTimers.get(chatId)); // Сбрасываем таймер, если пользователь ответил вовремя
+        activeTimers.delete(chatId);
+        client.sendMessage(chatId, "Спасибо за оплату и т.д.");
+        updateLastMessages(user, "Спасибо за оплату и т.д.", "assistant");
+        await user.save()
+        return
     }
+
+    if (answer.toLocaleLowerCase().includes("забронировал")) {
+        const phone = chatId.match(/\d/g);
+        const isBooked = await fetchBookings(phone)
+        if (isBooked) {
+            client.sendMessage(chatId, "Счет на оплату");
+            const timer = setTimeout(async () => {
+                console.log(`Удаляем бронь пользователя: ${chatId}`);
+                // await deleteBooking(phone); // Реализуйте deleteBooking отдельно
+                user.specialPhone = false;
+                await user.save();
+                client.sendMessage(chatId, "Ваша бронь была удалена из-за отсутствия ответа.");
+            }, 60000); // 1 минута = 60000 мс
+
+            activeTimers.set(chatId, timer);
+            return
+        } else {
+            client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер по которому забронировали квартиру что бы мы могли проверить");
+            updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер по которому забронировали квартиру что бы мы могли проверить", "assistant");
+            user.specialPhone = true
+            await user.save();
+            return
+        }
+    }
+
+    client.sendMessage(chatId, answer);
+    updateLastMessages(user, answer, "assistant");
+
+    // Сохраняем изменения в базе данных
+    await user.save();
 });
+
+const updateLastMessages = (user, message, role) => {
+    user.lastMessages.push({ role, content: message }); // Добавляем объект
+    if (user.lastMessages.length > 10) {
+        user.lastMessages.shift(); // Удаляем самое старое сообщение
+    }
+};
+
+const gptResponse = async (text, lastMessages) => {
+    const messages = [
+        {
+            role: "system",
+            content: prompt,
+        },
+        ...lastMessages.map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+        })),
+        {
+            role: "user",
+            content: text,
+        },
+    ];
+
+    const response = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+            model: "gpt-3.5-turbo",
+            messages,
+        },
+        {
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${OPENAI_API_KEY}`,
+            },
+        }
+    );
+
+    const answer = response.data.choices[0].message.content;
+    return answer;
+};
 
 
 client.initialize();
