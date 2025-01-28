@@ -10,9 +10,9 @@ const UserSchema = new mongoose.Schema(
             type: Boolean,
             default: false
         },
-        apartment_id: {
-            type: String,
-            default: ""
+        apartment: {
+            type: Object,
+            default: {}
         },
         specialPhone: {
             type: Boolean,
@@ -34,6 +34,19 @@ const UserSchema = new mongoose.Schema(
             ], // Массив строк для хранения сообщений
             default: []
         },
+        apartments: [
+            {
+                apartment_id: {
+                    type: String,
+                },
+                start_date: {
+                    type: String
+                },
+                end_date: {
+                    type: String
+                }
+            }
+        ],
         isGandon: {
             type: Boolean,
             default: false

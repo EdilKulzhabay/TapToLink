@@ -6,6 +6,7 @@ const mongoose = require("mongoose")
 const User = require("./Models/User.js")
 const { prompt } = require("./prompt.js");
 const { fetchBookings } = require("./fetchBookings.js");
+const { deleteBooking } = require("./deleteBooking.js");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
@@ -77,15 +78,18 @@ client.on("message", async (msg) => {
     }
 
     if (user.specialPhone) {
-        const phone = message.match(/\d/g);
+        const phone = message.match(/\d/g).join('');
         const isBooked = await fetchBookings(phone)
-        if (isBooked) {
+        if (isBooked?.success) {
             client.sendMessage(chatId, "Счет на оплату");
             user.specialPhone = false
+            user.apartment = isBooked.booked
+            const apartments = [...user.apartments, isBooked.booked]
+            user.apartments = apartments
             await user.save()
             const timer = setTimeout(async () => {
                 console.log(`Удаляем бронь пользователя: ${chatId}`);
-                // await deleteBooking(phone); // Реализуйте deleteBooking отдельно
+                await deleteBooking({apartment_id: user.apartment.apartment_id, id: user.apartment.id}); // Реализуйте deleteBooking отдельно
                 user.specialPhone = false;
                 await user.save();
                 client.sendMessage(chatId, "Ваша бронь была удалена из-за отсутствия ответа.");
@@ -94,8 +98,36 @@ client.on("message", async (msg) => {
             activeTimers.set(chatId, timer);
             return
         } else {
-            client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер по которому забронировали квартиру что бы мы могли проверить");
-            updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер по которому забронировали квартиру что бы мы могли проверить", "assistant");
+            client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить");
+            updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить", "assistant");
+            user.specialPhone = true
+            await user.save();
+            return
+        }
+    }
+
+    if (answer.toLocaleLowerCase().includes("забронировал")) {
+        const phone = chatId.match(/\d/g).join('');
+        const isBooked = await fetchBookings(phone)
+        if (isBooked?.success) {
+            client.sendMessage(chatId, "Счет на оплату");
+            user.apartment = isBooked.booked
+            const apartments = [...user.apartments, isBooked.booked]
+            user.apartments = apartments
+            await user.save()
+            const timer = setTimeout(async () => {
+                console.log(`Удаляем бронь пользователя: ${chatId}`);
+                await deleteBooking({apartment_id: user.apartment.apartment_id, id: user.apartment.id});
+                user.specialPhone = false;
+                await user.save();
+                client.sendMessage(chatId, "Ваша бронь была удалена из-за отсутствия ответа.");
+            }, 60000); // 1 минута = 60000 мс
+
+            activeTimers.set(chatId, timer);
+            return
+        } else {
+            client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить");
+            updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить", "assistant");
             user.specialPhone = true
             await user.save();
             return
@@ -112,19 +144,12 @@ client.on("message", async (msg) => {
         return client.sendMessage(chatId, "В скором времени с вами свяжется менеджер")
     }
 
-    // if (message.toLocaleLowerCase().includes("оплатил")) {
-    //     client.sendMessage("120363378709019183@g.us", `Клиент ${clientName} с номером '${chatId.slice(0, -5)}' оплатил wa.me//+${chatId.slice(0, -5)}`)
-    //     return client.sendMessage(chatId, "")
-    // }
-
     // Обновляем массив lastMessages
     if (message) {
         updateLastMessages(user, message, "user");
     }
 
     const answer = await gptResponse(message, user.lastMessages);
-    console.log("answer: ", answer);
-    
 
     if (answer.toLocaleLowerCase().includes("оплатил")) {
         clearTimeout(activeTimers.get(chatId)); // Сбрасываем таймер, если пользователь ответил вовремя
@@ -133,30 +158,6 @@ client.on("message", async (msg) => {
         updateLastMessages(user, "Спасибо за оплату и т.д.", "assistant");
         await user.save()
         return
-    }
-
-    if (answer.toLocaleLowerCase().includes("забронировал")) {
-        const phone = chatId.match(/\d/g);
-        const isBooked = await fetchBookings(phone)
-        if (isBooked) {
-            client.sendMessage(chatId, "Счет на оплату");
-            const timer = setTimeout(async () => {
-                console.log(`Удаляем бронь пользователя: ${chatId}`);
-                // await deleteBooking(phone); // Реализуйте deleteBooking отдельно
-                user.specialPhone = false;
-                await user.save();
-                client.sendMessage(chatId, "Ваша бронь была удалена из-за отсутствия ответа.");
-            }, 60000); // 1 минута = 60000 мс
-
-            activeTimers.set(chatId, timer);
-            return
-        } else {
-            client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер по которому забронировали квартиру что бы мы могли проверить");
-            updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер по которому забронировали квартиру что бы мы могли проверить", "assistant");
-            user.specialPhone = true
-            await user.save();
-            return
-        }
     }
 
     client.sendMessage(chatId, answer);

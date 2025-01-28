@@ -1,9 +1,16 @@
 const { default: axios } = require("axios");
 const crypto = require("crypto");
+const { generateSign } = require("./generateSign");
 require("dotenv").config();
 
-const begin_date = '2024-12-01';
-const end_date = '2024-12-30';
+const yesterday = new Date();
+yesterday.setDate(yesterday.getDate() - 1);
+const begin_date = yesterday.toISOString().split('T')[0]; // Формат YYYY-MM-DD
+
+// Получаем завтрашнюю дату
+const tomorrow = new Date();
+tomorrow.setDate(tomorrow.getDate() + 1);
+const end_date = tomorrow.toISOString().split('T')[0]; // Формат YYYY-MM-DD
 
 // Формируем параметры запроса
 const params = {
@@ -11,17 +18,10 @@ const params = {
     end_date
 };
 
-function generateSign(params) {
-    const sortedParams = Object.keys(params).sort().map(key => `${key}=${params[key]}`).join('');
-    const dataToHash = sortedParams + process.env.PRIVATE_KEY;
-    const sign = crypto.createHash('md5').update(dataToHash).digest('hex');
-    return sign;
-}
-
 // Функция для получения броней
 const fetchBookings = async (phone) => {
     const url = `https://realtycalendar.ru/api/v1/bookings/${process.env.PUBLIC_KEY}`;
-    console.log("url", url);
+    console.log("phone: ", phone);
 
     // Добавляем подпись к параметрам запроса
     const requestBody = {
@@ -40,16 +40,19 @@ const fetchBookings = async (phone) => {
 
         if (response.status === 200) {
             const bookings = response.data.bookings
-            console.log(bookings);
-            
             const booked = bookings.find((item) => {
-                return item.client && item.client.phone && item.client.phone.match(/\d/g).join('') === phone.join('');
+                return item.client && item.client.phone && item.client.phone.match(/\d/g).join('') === phone;
             });
-
+            console.log("We here, booked is: ", booked);
+            
             if (booked) {
-                return true
+                const res = {success: true, booked}
+                console.log(booked);
+                
+                return res
             } else {
-                return false
+                const res = {success: false, booked: null}
+                return res
             }
         }
     } catch (error) {
