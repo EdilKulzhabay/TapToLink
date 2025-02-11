@@ -13,8 +13,8 @@ const kaspiParser = async (name) => {
                 const cookies = JSON.parse(fs.readFileSync(COOKIES_PATH, 'utf8'));
                 await page.setCookie(...cookies);
             } catch (error) {
-                console.error("Ошибка чтения cookies.json, удаляем файл...", error);
-                fs.unlinkSync(COOKIES_PATH);
+                console.error("Ошибка чтения cookies.json. Перезаписываем файл...", error);
+                fs.writeFileSync(COOKIES_PATH, '[]'); // Перезаписываем пустым массивом
             }
         }
 
@@ -32,6 +32,8 @@ const kaspiParser = async (name) => {
                 await page.type('#Login', process.env.login);
                 await page.click('#submit');
                 await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
+                console.log("login if");
+                
             }
 
             const passwordInput = await page.$('#Password');
@@ -39,19 +41,34 @@ const kaspiParser = async (name) => {
                 await page.type('#Password', process.env.pass);
                 await page.click('#submit');
                 await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
+                console.log("password if");
             }
 
             const cookies = await page.cookies();
             console.log("we here");
             
-            fs.writeFileSync(COOKIES_PATH, JSON.stringify(cookies, null, 2));
+            fs.writeFile(COOKIES_PATH, JSON.stringify(cookies, null, 2), (err) => {
+                if (err) console.error("Ошибка записи cookies.json:", err);
+            });
+            console.log("fs writeFileSync");
+            
         } else {
             console.log('Вы уже авторизованы.');
         }
+        
 
-        await page.waitForSelector('table tr', { timeout: 15000 });
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        console.log("ДО page.waitForSelector('table tr");
+
+        await page.waitForSelector('table tr', { timeout: 30000 });
+
+        console.log("page.waitForSelector('table tr");
+        
 
         await new Promise(resolve => setTimeout(resolve, 20000));
+
+        console.log("promise");
+        
 
         const rows = await page.evaluate(() => {
             const data = [];

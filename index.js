@@ -83,6 +83,8 @@ client.on("message", async (msg) => {
         const kaspi = await kaspiParser(message)
         if (kaspi) {
             client.sendMessage(chatId, `Вы оплатили ${kaspi} тенге`)
+        } else {
+            client.sendMessage(chatId, `Мы не смогли найти вашу оплату`)
         }
     }
 

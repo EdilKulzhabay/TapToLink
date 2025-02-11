@@ -4,7 +4,7 @@ let browserInstance = null;
 
 const getBrowser = async () => {
     if (!browserInstance) {
-        browserInstance = await puppeteer.launch({ headless: "new" });
+        browserInstance = await puppeteer.launch({ headless: true }); // Всегда используем один экземпляр
     }
     return browserInstance;
 };
