@@ -7,6 +7,7 @@ const User = require("./Models/User.js")
 const { prompt } = require("./prompt.js");
 const { fetchBookings } = require("./fetchBookings.js");
 const { deleteBooking } = require("./deleteBooking.js");
+const { kaspiParser } = require("./kaspi.js");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY
 
@@ -72,13 +73,21 @@ client.on("message", async (msg) => {
     // Находим или создаем пользователя
     let user = await User.findOne({ phone: chatId });
 
-    if (user && user.isGandon) {
+    if (user && user?.isGandon) {
         client.sendMessage(chatId, "Здравствуйте, к сожалению в данный момент нет свободных квартир.")
         return;
     }
 
-    if (user.specialPhone) {
-        const phone = message.match(/\d/g).join('');
+    if (user?.waitFIO) {
+        console.log("Запуск kaspiParser с аргументом:", message);
+        const kaspi = await kaspiParser(message)
+        if (kaspi) {
+            client.sendMessage(chatId, `Вы оплатили ${kaspi} тенге`)
+        }
+    }
+
+    if (user?.specialPhone) {
+        const phone = message?.match(/\d/g)?.join('');
         const isBooked = await fetchBookings(phone)
         if (isBooked?.success) {
             client.sendMessage(chatId, "Счет на оплату");
@@ -90,34 +99,6 @@ client.on("message", async (msg) => {
             const timer = setTimeout(async () => {
                 console.log(`Удаляем бронь пользователя: ${chatId}`);
                 await deleteBooking({apartment_id: user.apartment.apartment_id, id: user.apartment.id}); // Реализуйте deleteBooking отдельно
-                user.specialPhone = false;
-                await user.save();
-                client.sendMessage(chatId, "Ваша бронь была удалена из-за отсутствия ответа.");
-            }, 60000); // 1 минута = 60000 мс
-
-            activeTimers.set(chatId, timer);
-            return
-        } else {
-            client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить");
-            updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить", "assistant");
-            user.specialPhone = true
-            await user.save();
-            return
-        }
-    }
-
-    if (answer.toLocaleLowerCase().includes("забронировал")) {
-        const phone = chatId.match(/\d/g).join('');
-        const isBooked = await fetchBookings(phone)
-        if (isBooked?.success) {
-            client.sendMessage(chatId, "Счет на оплату");
-            user.apartment = isBooked.booked
-            const apartments = [...user.apartments, isBooked.booked]
-            user.apartments = apartments
-            await user.save()
-            const timer = setTimeout(async () => {
-                console.log(`Удаляем бронь пользователя: ${chatId}`);
-                await deleteBooking({apartment_id: user.apartment.apartment_id, id: user.apartment.id});
                 user.specialPhone = false;
                 await user.save();
                 client.sendMessage(chatId, "Ваша бронь была удалена из-за отсутствия ответа.");
@@ -150,14 +131,49 @@ client.on("message", async (msg) => {
     }
 
     const answer = await gptResponse(message, user.lastMessages);
+    console.log(answer);
+    
 
     if (answer.toLocaleLowerCase().includes("оплатил")) {
         clearTimeout(activeTimers.get(chatId)); // Сбрасываем таймер, если пользователь ответил вовремя
         activeTimers.delete(chatId);
-        client.sendMessage(chatId, "Спасибо за оплату и т.д.");
-        updateLastMessages(user, "Спасибо за оплату и т.д.", "assistant");
+        client.sendMessage(chatId, "Напишите ФИО плательщика");
+        updateLastMessages(user, "Напишите ФИО плательщика", "assistant");
+        user.waitFIO = true
         await user.save()
         return
+    }
+
+    if (answer.toLocaleLowerCase().includes("забронировал")) {
+        const phone = chatId.match(/\d/g).join('');
+        const isBooked = await fetchBookings(phone)
+        if (isBooked?.success) {
+            client.sendMessage(chatId, "Счет на оплату");
+            user.apartment = isBooked.booked
+            const apartments = [...user.apartments, isBooked.booked]
+            user.apartments = apartments
+            await user.save()
+            const timer = setTimeout(async () => {
+                console.log(`Удаляем бронь пользователя: ${chatId}`);
+                await deleteBooking({apartment_id: user.apartment.apartment_id, id: user.apartment.id});
+                user.specialPhone = false;
+                await user.save();
+                client.sendMessage(chatId, "Ваша бронь была удалена из-за отсутствия ответа.");
+            }, 60000); // 1 минута = 60000 мс
+
+            activeTimers.set(chatId, timer);
+            return
+        } else {
+            client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить");
+            updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить", "assistant");
+            user.specialPhone = true
+            await user.save();
+            return
+        }
+    }
+
+    if (answer.toLocaleLowerCase().includes("инструкция")) {
+
     }
 
     client.sendMessage(chatId, answer);

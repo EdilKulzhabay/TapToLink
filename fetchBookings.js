@@ -41,7 +41,7 @@ const fetchBookings = async (phone) => {
         if (response.status === 200) {
             const bookings = response.data.bookings
             const booked = bookings.find((item) => {
-                return item.client && item.client.phone && item.client.phone.match(/\d/g).join('') === phone;
+                return item.client && item.client.phone && item.client.phone.match(/\d/g).join('') === phone && !item.is_delete;
             });
             console.log("We here, booked is: ", booked);
             

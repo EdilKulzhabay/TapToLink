@@ -18,6 +18,10 @@ const UserSchema = new mongoose.Schema(
             type: Boolean,
             default: false
         },
+        waitFIO: {
+            type: Boolean,
+            default: false
+        },
         lastMessages: {
             type: [
                 {
