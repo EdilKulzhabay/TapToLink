@@ -153,6 +153,11 @@ client.on("message", async (msg) => {
     const clientName = msg._data.notifyName
     const message = msg.body;
 
+    if (message.toLocaleLowerCase().includes("restart")) {
+        await User.findOneAndDelete({phone: chatId})
+        return
+    }
+
     if (!message || message.trim() === "") {
         return client.sendMessage(chatId, "Пожалуйста, отправьте сообщение.");
     }
