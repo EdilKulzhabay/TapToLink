@@ -183,7 +183,7 @@ client.on("message", async (msg) => {
                     amount: user.chooseApartment.price,
                     apartment_id: user.chooseApartment.id
                 }
-                const addBook = await addBooking(userData, apartmentData)
+                const addBook = await addBooking(userData, apartmentData, clientName)
                 if (addBook) {
                     const sum = user.chooseApartment.price * calculateDaysBetweenDates(user.bookingDate.startDate, user.bookingDate.endDate)
                     client.sendMessage(chatId, `Стоимость проживания ${sum} + депозит`)

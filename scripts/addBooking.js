@@ -1,7 +1,7 @@
 const { default: axios } = require("axios");
 const { generateSign2 } = require("./generateSign2");
 
-const addBooking = async (userData, apartmentData) => {
+const addBooking = async (userData, apartmentData, clientName) => {
     const url = `https://realtycalendar.ru/api/v1/apartments/${apartmentData.apartment_id}/event_calendars`;
     
     const event_calendar = {
@@ -11,10 +11,10 @@ const addBooking = async (userData, apartmentData) => {
         amount: apartmentData.amount,
         notes: "",
         client_attributes: {
-            fio: "test",
+            fio: clientName,
             phone: userData.phone,
-            additional_phone: "test",
-            email: "edil@gmail.com",
+            additional_phone: "+77777777777",
+            email: "vatsap@test.com",
         },
     };
 
