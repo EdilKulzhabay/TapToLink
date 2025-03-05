@@ -110,26 +110,49 @@ function calculateDaysBetweenDates(startDate, endDate) {
     return daysDifference;
 }
 
+client.on('message_create', async (msg) => {
+    if (msg.fromMe) {
+        const chatId = msg.to;
+        const message = msg.body;
+        if (message.toLocaleLowerCase().includes("отключить бота")) {
+            console.log("we here отключить бота");
+            
+            const digits = message.match(/\d/g);
+            const result = digits.join("") + "@c.us";
+    
+            const gandon = await User.findOne({phone: result})
+    
+            if (gandon) {
+                gandon.isGandon = true
+                await gandon.save()
+            } else {
+                const newGandon = new User({phone: result, isGandon: true})
+                await newGandon.save()
+            }
+            return
+        }
+    
+        if (message.toLocaleLowerCase().includes("включить бота")) {
+            console.log("we here включить бота");
+            const digits = message.match(/\d/g);
+            const result = digits.join("") + "@c.us";
+    
+            const gandon = await User.findOne({phone: result})
+    
+            if (gandon) {
+                gandon.isGandon = false
+                await gandon.save()
+            } 
+            return
+        }
+    }
+});
+
 client.on("message", async (msg) => {
     const chatId = msg.from;
     const clientName = msg._data.notifyName
     const message = msg.body;
 
-    if (message.toLocaleLowerCase().includes("addgandona")) {
-        const digits = message.match(/\d/g);
-        const result = digits.join("") + "@c.us";
-
-        const gandon = await User.findOne({phone: result})
-
-        if (gandon && !gandon.isGandon) {
-            gandon.isGandon = true
-            await gandon.save()
-        } else {
-            const newGandon = new User({phone: result, isGandon: true})
-            await newGandon.save()
-        }
-
-    }
     if (!message || message.trim() === "") {
         return client.sendMessage(chatId, "Пожалуйста, отправьте сообщение.");
     }
@@ -365,7 +388,8 @@ client.on("message", async (msg) => {
         updateLastMessages(user, message, "user");
     }
 
-    const answer = await gptResponse(message, user.lastMessages, prompt);
+    const todayForPrompt = new Date();
+    const answer = await gptResponse(message, user.lastMessages, `- Текущая дата — ${todayForPrompt.getFullYear()}-${todayForPrompt.getMonth() + 1}-${todayForPrompt.getDate()}, используй её для контекста, если даты указаны относительно (например, "на следующей неделе").` + prompt);
     const answerData = await handleMessage(answer)
     console.log("answerData = ", answerData);
     
@@ -446,6 +470,35 @@ client.on("message", async (msg) => {
         }
     }
     
+    if (answerData?.what === 4) {
+        if (user.dontUnderstand === 1) {
+            await User.findOneAndUpdate(
+                { _id: user._id },
+                {
+                    $set: {
+                        isGandon: true,
+                        dontUnderstand: 0,
+                    }
+                },
+                { new: true } // Возвращает обновленный документ, если нужно
+            );
+            client.sendMessage("120363162509779134@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать, не можем понять что он хочет wa.me//+${chatId.slice(0, -5)}`)
+            client.sendMessage(chatId, "В скором времени с вами свяжется менеджер")
+            return
+        }
+        client.sendMessage(chatId, `Не совсем понял вас, вы могли бы уточнить?`)
+        updateLastMessages(user, `Не совсем понял вас, вы могли бы уточнить?`, "assistant")
+        await User.findOneAndUpdate(
+            { _id: user._id },
+            {
+                $set: {
+                    dontUnderstand: 1,
+                }
+            },
+            { new: true } // Возвращает обновленный документ, если нужно
+        );
+        return
+    }
 
     if (answer.toLocaleLowerCase().includes("оплатил")) {
         clearTimeout(activeTimers.get(chatId)); // Сбрасываем таймер, если пользователь ответил вовремя
@@ -555,6 +608,8 @@ const updateLastMessages = (user, message, role) => {
 };
 
 const gptResponse = async (text, lastMessages, prompt) => {
+    console.log(prompt);
+    
     const messages = [
         {
             role: "system",

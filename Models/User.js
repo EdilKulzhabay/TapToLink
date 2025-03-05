@@ -85,6 +85,10 @@ const UserSchema = new mongoose.Schema(
         },
         last_message_date: {
             type: Date
+        },
+        dontUnderstand: {
+            type: Number,
+            default: 0
         }
     },
     {
