@@ -6,8 +6,8 @@ const ApartmentsSchema = new mongoose.Schema(
             type: String,
             required: true
         },
-        instructions: [],
-        address: {
+        links: [],
+        text: {
             type: String,
             default: ""
         }

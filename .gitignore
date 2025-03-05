@@ -4,3 +4,4 @@ node_modules/
 .wwebjs_cache/
 cookies.json
 package-lock.kson
+saveVideo.js

@@ -38,22 +38,53 @@ const UserSchema = new mongoose.Schema(
             ], // Массив строк для хранения сообщений
             default: []
         },
-        apartments: [
-            {
-                apartment_id: {
-                    type: String,
-                },
-                start_date: {
-                    type: String
-                },
-                end_date: {
-                    type: String
-                }
-            }
-        ],
+        apartments: [],
         isGandon: {
             type: Boolean,
             default: false
+        },
+        temporarySum: {
+            type: Number,
+            default: 0
+        },
+        paid: {
+            apartment_id: {
+                type: String,
+                default: ""
+            },
+            status: {
+                type: Boolean,
+                default: false
+            }
+        },
+        chooseApartments: {
+            type: [],
+            default: []
+        },
+        chooseApartment: {
+            type: Object
+        },
+        waitAgreement: {
+            status: {
+                type: Boolean,
+                default: false
+            },
+            what: {
+                type: Object
+            }
+        },
+        bookingDate: {
+            startDate: {
+                type: String,
+                default: ""
+            },
+            endDate: {
+                type: String,
+                default: ""
+            }
+        },
+        last_message_date: {
+            type: Date
         }
     },
     {

@@ -1,9 +1,10 @@
-const { getBrowser } = require("./puppeteerManager");
+const { getBrowser } = require("./scripts/puppeteerManager");
 const fs = require('fs')
+require("dotenv").config();
 
 const COOKIES_PATH = './cookies.json';
 
-const kaspiParser = async (name) => {
+const kaspiParser = async (phone) => {
     const browser = await getBrowser();
     const page = await browser.newPage();
 
@@ -29,11 +30,13 @@ const kaspiParser = async (name) => {
             
             const loginInput = await page.$('#Login');
             if (loginInput) {
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                await page.click('#Login');
+                await new Promise(resolve => setTimeout(resolve, 2000));
                 await page.type('#Login', process.env.login);
                 await page.click('#submit');
                 await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
                 console.log("login if");
-                
             }
 
             const passwordInput = await page.$('#Password');
@@ -47,9 +50,7 @@ const kaspiParser = async (name) => {
             const cookies = await page.cookies();
             console.log("we here");
             
-            fs.writeFile(COOKIES_PATH, JSON.stringify(cookies, null, 2), (err) => {
-                if (err) console.error("Ошибка записи cookies.json:", err);
-            });
+            fs.writeFileSync(COOKIES_PATH, JSON.stringify(cookies, null, 2)); 
             console.log("fs writeFileSync");
             
         } else {
@@ -65,7 +66,7 @@ const kaspiParser = async (name) => {
         console.log("page.waitForSelector('table tr");
         
 
-        await new Promise(resolve => setTimeout(resolve, 20000));
+        await new Promise(resolve => setTimeout(resolve, 10000));
 
         console.log("promise");
         
@@ -87,20 +88,25 @@ const kaspiParser = async (name) => {
             console.log(`Строка ${index + 1}:`, row);
         });
 
-        const foundRow = rows.find(row => row[6] && row[6] === name);
+        const foundRow = rows.find(row => {
+            const numbers = row[6]?.match(/\d+/g)?.join(''); // Извлекаем все цифры и объединяем в строку
+            return numbers === phone;
+        });
         if (foundRow) {
-            console.log(`Найден клиент: ${name}, сумма оплаты: ${foundRow[3]}`);
+            console.log(`Найден клиент: ${phone}, сумма оплаты: ${foundRow[3]}`);
+            await page.close()
             return foundRow[3]; // Возвращаем сумму оплаты
         } else {
-            console.log(`Клиент ${name} не найден.`);
+            console.log(`Клиент ${phone} не найден.`);
+            await page.close()
             return null;
         }
 
     } catch (error) {
         console.error('Ошибка:', error);
-    } finally {
-        if (browser) await browser.close();
-    }
+        await page.close()
+    } 
 }
 
-module.exports = { kaspiParser };
+kaspiParser("77006837203")
+// module.exports = { kaspiParser };
