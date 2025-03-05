@@ -172,6 +172,22 @@ client.on("message", async (msg) => {
 
     if (user?.additionalPrompt) {
         const answer = await gptResponse(message, user.lastMessages, additionalPromot);
+        if (answer.toLocaleLowerCase().includes("инструкция")) {
+            const apartmentId = user?.apartment?.apartment_id
+            const apartment = await Apartments.findOne({apartment_id: apartmentId})
+    
+            if (!apartment) {
+                await client.sendMessage(chatId, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер");
+                updateLastMessages(user, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер", "assistant");
+                client.sendMessage("120363162509779134@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать wa.me//+${chatId.slice(0, -5)}`)
+            } else {
+                await client.sendMessage(chatId, apartment.links[0]);
+                updateLastMessages(user, apartment.links[0], "assistant");
+                await client.sendMessage(chatId, apartment.text);
+                updateLastMessages(user, apartment.text, "assistant");
+            }
+            return
+        }
         client.sendMessage(chatId, answer)
         updateLastMessages(user, answer, "assistant")
         user.save()
