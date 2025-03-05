@@ -436,9 +436,73 @@ client.on("message", async (msg) => {
         client.sendMessage(chatId, `С ${answerData.dateIn} по ${answerData.dateOut} подобрано вариантов: ${link.source.items.length}. Для просмотра перейдите по ссылке: ${link.url}`);
         updateLastMessages(user, `С ${answerData.dateIn} по ${answerData.dateOut} подобрано вариантов: ${link.source.items.length}. Для просмотра перейдите по ссылке: ${link.url}`, "assistant");
         user.chooseApartments = link.source.items
-        user.bookingDate = {startDate: answerData.dateIn, endDate: answerData.dateOut}
+        user.bookingDate = {startDate: answerData.dateIn, endDate: answerData.dateOut, personsKol: answerData.persons || 1}
         await user.save()
         return
+    }
+
+    if (answerData?.what === 7) {
+        user.bookingDate.startDate = answerData.dateIn
+        if (user.bookingDate.endDate === "") {
+            client.sendMessage(chatId, "Пожалуйста отправьте дату выезда");
+            updateLastMessages(user, "Пожалуйста отправьте дату выезда", "assistant");
+            await user.save()
+            return
+        }
+    }
+
+    if (answerData?.what === 8) {
+        user.bookingDate.endDate = answerData.dateOut
+        if (user.bookingDate.personsKol === 0) {
+            client.sendMessage(chatId, "Пожалуйста отправьте количество персон");
+            updateLastMessages(user, "Пожалуйста отправьте количество персон", "assistant");
+            await user.save()
+            return
+        }
+    }
+
+    if (answerData?.what === 9) {
+        user.bookingDate.personsKol = answerData.persons
+        if (user.bookingDate.startDate !== "" && user.bookingDate.endDate !== "") {
+            const [year, month, day] = user.bookingDate.startDate.split("-");
+            const beginDate = `${day}.${month}.${year}`
+            const [year2, month2, day2] = user.bookingDate.endDate.split("-");
+            const endDate = `${day2}.${month2}.${year2}`
+            const response = await axios.get(`${process.env.vacantApartments}humans=${user.bookingDate.personsKol}&begin_date=${beginDate}&end_date=${endDate}`)
+            // console.log("respone in getApartments = ", response);
+            
+            const vacantApartments = response.data.apartments
+            const dataToLink = vacantApartments.map((item) => {
+                return {
+                    apartment_id: item.id,
+                    apartment_title: item.title,
+                    amount: item.price,
+                    is_special_amount: false
+                }
+            })
+            let link = await getLink(user.bookingDate.startDate, user.bookingDate.endDate, dataToLink)
+            if (link === "sosi hui") {
+                globalVar.setVar("")
+                link = await getLink(user.bookingDate.startDate, user.bookingDate.endDate, dataToLink)
+            }
+            if (link === "sosi hui dvazhdy") {
+                client.sendMessage(chatId, "Ошибка при получении ссылки(");
+                updateLastMessages(user, "Ошибка при получении ссылки(", "assistant");
+                await user.save()
+                return
+            }
+            if (link.source.items.length === 0) {
+                client.sendMessage(chatId, `С ${user.bookingDate.startDate} по ${user.bookingDate.endDate} нет свободных квартир`);
+                updateLastMessages(user, `С ${user.bookingDate.startDate} по ${user.bookingDate.endDate} нет свободных квартир`, "assistant");
+                await user.save()
+                return
+            }
+            client.sendMessage(chatId, `С ${user.bookingDate.startDate} по ${user.bookingDate.endDate} подобрано вариантов: ${link.source.items.length}. Для просмотра перейдите по ссылке: ${link.url}`);
+            updateLastMessages(user, `С ${user.bookingDate.startDate} по ${user.bookingDate.endDate} подобрано вариантов: ${link.source.items.length}. Для просмотра перейдите по ссылке: ${link.url}`, "assistant");
+            user.chooseApartments = link.source.items
+            await user.save()
+            return
+        }
     }
 
     if (answerData?.what === 3) {

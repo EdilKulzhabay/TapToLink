@@ -15,6 +15,31 @@ const handleMessage = async (message) => {
 
         return {what: 1, dateIn, dateOut, persons}
     }
+
+    if (command === '7') {
+        const dateInMatch = message.match(/заезд=(\d{4}-\d{2}-\d{2})/);
+
+        const dateIn = dateInMatch ? dateInMatch[1] : null; // "2025-03-01"
+
+        return {what: 7, dateIn}
+    }
+
+    if (command === '8') {
+        const dateOutMatch = message.match(/выезд=(\d{4}-\d{2}-\d{2})/);
+
+        const dateOut = dateOutMatch ? dateOutMatch[1] : null; // "2025-03-03"
+
+        return {what: 1, dateOut}
+    }
+
+    if (command === '9') {
+        const personsMatch = message.match(/количество персон=(\d+)/);
+
+        const persons = personsMatch ? parseInt(personsMatch[1], 10) : null; // 2
+
+        return {what: 1, persons}
+    }
+
     if (command === "3") {
         if (message.includes("адрес")) {
             const str = message.replace("3\n", "");

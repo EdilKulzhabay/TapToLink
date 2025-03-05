@@ -81,6 +81,10 @@ const UserSchema = new mongoose.Schema(
             endDate: {
                 type: String,
                 default: ""
+            },
+            personsKol: {
+                type: Number,
+                default: 0
             }
         },
         last_message_date: {
