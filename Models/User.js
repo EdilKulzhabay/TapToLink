@@ -93,6 +93,10 @@ const UserSchema = new mongoose.Schema(
         dontUnderstand: {
             type: Number,
             default: 0
+        },
+        additionalPrompt: {
+            type: Boolean,
+            default: false
         }
     },
     {

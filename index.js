@@ -5,7 +5,7 @@ const { default: axios } = require("axios");
 const mongoose = require("mongoose")
 const Apartments = require("./Models/Apatments.js")
 const User = require("./Models/User.js");
-const { prompt, agreementPrompt } = require("./const/prompt.js");
+const { prompt, agreementPrompt, additionalPromot } = require("./const/prompt.js");
 const { fetchBookings } = require("./scripts/fetchBookings.js");
 const { deleteBooking } = require("./scripts/deleteBooking.js");
 const { kaspiParser } = require("./kaspi.js");
@@ -170,6 +170,14 @@ client.on("message", async (msg) => {
         return;
     }
 
+    if (user?.additionalPrompt) {
+        const answer = await gptResponse(message, user.lastMessages, additionalPromot);
+        client.sendMessage(chatId, answer)
+        updateLastMessages(user, answer, "assistant")
+        user.save()
+        return
+    }
+
     if (!user) {
         user = new User({ phone: chatId, last_message_date: new Date(msg.timestamp) });
         client.sendMessage(chatId, startMessage);
@@ -321,6 +329,7 @@ client.on("message", async (msg) => {
                     user.temporarySum = 0
                     user.paid.status = true
                     user.waitFIO = false
+                    user.additionalPrompt = true
                 } else {
                     user.temporarySum += parseInt(kaspi)
                     client.sendMessage(chatId, `К сожалению вы отправили не полную сумму, вы можете еще раз пройти по ссылке и оплатить оставшуюся сумму. После оплаты напишите слово 'Оплатил'`)
@@ -333,6 +342,7 @@ client.on("message", async (msg) => {
                 user.temporarySum = 0
                 user.paid.status = true
                 user.waitFIO = false
+                user.additionalPrompt = true
             }
             user.waitFIO = false
             await user.save()
@@ -582,6 +592,7 @@ client.on("message", async (msg) => {
                     user.temporarySum = 0
                     user.paid.status = true
                     user.waitFIO = false
+                    user.additionalPrompt = true
                 } else {
                     user.temporarySum += parseInt(kaspi)
                     client.sendMessage(chatId, `К сожалению вы отправили не полную сумму, вы можете еще раз пройти по ссылке и оплатить оставшуюся сумму. После оплаты напишите слово 'Оплатил'`)
@@ -594,6 +605,7 @@ client.on("message", async (msg) => {
                 user.temporarySum = 0
                 user.paid.status = true
                 user.waitFIO = false
+                user.additionalPrompt = true
             }
             user.waitFIO = false
             await user.save()
