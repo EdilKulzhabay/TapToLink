@@ -29,7 +29,7 @@ const handleMessage = async (message) => {
 
         const dateOut = dateOutMatch ? dateOutMatch[1] : null; // "2025-03-03"
 
-        return {what: 1, dateOut}
+        return {what: 8, dateOut}
     }
 
     if (command === '9') {
@@ -37,7 +37,7 @@ const handleMessage = async (message) => {
 
         const persons = personsMatch ? parseInt(personsMatch[1], 10) : null; // 2
 
-        return {what: 1, persons}
+        return {what: 8, persons}
     }
 
     if (command === "3") {
