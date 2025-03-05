@@ -1,6 +1,6 @@
 const { getBrowser } = require("./scripts/puppeteerManager");
 const fs = require('fs')
-require("dotenv").config();
+// require("dotenv").config();
 
 const COOKIES_PATH = './cookies.json';
 
@@ -108,5 +108,5 @@ const kaspiParser = async (phone) => {
     } 
 }
 
-kaspiParser("77006837203")
-// module.exports = { kaspiParser };
+// kaspiParser("77006837203")
+module.exports = { kaspiParser };
