@@ -153,6 +153,10 @@ client.on("message", async (msg) => {
     const clientName = msg._data.notifyName
     const message = msg.body;
 
+    // console.log(chatId);
+    // return
+    
+
     if (message.toLocaleLowerCase().includes("restart")) {
         await User.findOneAndDelete({phone: chatId})
         return
@@ -705,7 +709,7 @@ const updateLastMessages = (user, message, role) => {
 };
 
 const gptResponse = async (text, lastMessages, prompt) => {
-    console.log(prompt);
+    // console.log(prompt);
     
     const messages = [
         {
