@@ -26,6 +26,10 @@ app.post('/lavaTest', checkApiKey, async (req, res) => {
   }
 });
 
+app.get("/test1", async (req, res) => {
+    console.log("we in test1");
+})
+
 // Запуск сервера
 const PORT = process.env.PORT || 3005;
 app.listen(PORT, async () => {
