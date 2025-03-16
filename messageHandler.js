@@ -4,6 +4,10 @@ const handleMessage = async (message) => {
 
     console.log(message);
 
+    if (message.toLocaleLowerCase().includes("ошибка")) {
+        return { what: "error" }
+    }
+
     if (command === '1') {
         const dateInMatch = message.match(/заезд=(\d{4}-\d{2}-\d{2})/);
         const dateOutMatch = message.match(/выезд=(\d{4}-\d{2}-\d{2})/);
@@ -16,7 +20,7 @@ const handleMessage = async (message) => {
         return {what: 1, dateIn, dateOut, persons}
     }
 
-    if (command === '7') {
+    if (command === '6') {
         const dateInMatch = message.match(/заезд=(\d{4}-\d{2}-\d{2})/);
 
         const dateIn = dateInMatch ? dateInMatch[1] : null; // "2025-03-01"
@@ -24,7 +28,7 @@ const handleMessage = async (message) => {
         return {what: 7, dateIn}
     }
 
-    if (command === '8') {
+    if (command === '7') {
         const dateOutMatch = message.match(/выезд=(\d{4}-\d{2}-\d{2})/);
 
         const dateOut = dateOutMatch ? dateOutMatch[1] : null; // "2025-03-03"
@@ -32,7 +36,7 @@ const handleMessage = async (message) => {
         return {what: 8, dateOut}
     }
 
-    if (command === '9') {
+    if (command === '8') {
         const personsMatch = message.match(/количество персон=(\d+)/);
 
         const persons = personsMatch ? parseInt(personsMatch[1], 10) : null; // 2
@@ -40,7 +44,7 @@ const handleMessage = async (message) => {
         return {what: 8, persons}
     }
 
-    if (command === "3") {
+    if (command === '3') {
         if (message.includes("адрес")) {
             const str = message.replace("3\n", "");
             const address = str.replace("адрес:", "");
@@ -51,8 +55,8 @@ const handleMessage = async (message) => {
         }
     }
 
-    if (command === "4") {
-        return {what: 4}
+    if (command === '9') {
+        return {what: 9}
     }
 };
 

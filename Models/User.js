@@ -97,6 +97,10 @@ const UserSchema = new mongoose.Schema(
         additionalPrompt: {
             type: Boolean,
             default: false
+        },
+        specialPhoneForInstruction: {
+            type: Boolean,
+            default: false
         }
     },
     {

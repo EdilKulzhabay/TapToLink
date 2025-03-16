@@ -3,9 +3,9 @@ const crypto = require("crypto");
 const { generateSign } = require("./generateSign");
 require("dotenv").config();
 
-const yesterday = new Date();
-yesterday.setDate(yesterday.getDate() - 1);
-const begin_date = yesterday.toISOString().split('T')[0]; // Формат YYYY-MM-DD
+const threeWeeksAgo = new Date();
+threeWeeksAgo.setDate(threeWeeksAgo.getDate() - 21);
+const begin_date = threeWeeksAgo.toISOString().split('T')[0]; // Формат YYYY-MM-DD
 
 // Получаем завтрашнюю дату
 const tomorrow = new Date();

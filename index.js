@@ -35,51 +35,6 @@ const client = new Client({
     },
 });
 
-// Путь к файлу для хранения данных
-const VACANT_APARTMENTS_FILE = path.join(__dirname, 'vacantApartments.json');
-
-// Функция для проверки, нужно ли обновлять данные
-const shouldUpdateData = async () => {
-    try {
-        const stats = await fs.stat(VACANT_APARTMENTS_FILE);
-        const lastModified = new Date(stats.mtime);
-        const today = new Date();
-        // Проверяем, был ли файл обновлен сегодня
-        return (
-            lastModified.getDate() !== today.getDate() ||
-            lastModified.getMonth() !== today.getMonth() ||
-            lastModified.getFullYear() !== today.getFullYear()
-        );
-    } catch (err) {
-        // Если файла нет, нужно его создать
-        return true;
-    }
-};
-
-// Функция для получения и сохранения данных
-const fetchAndSaveVacantApartments = async () => {
-    try {
-        const response = await axios.get(process.env.vacantApartments);
-        const data = response.data;
-        await fs.writeFile(VACANT_APARTMENTS_FILE, JSON.stringify(data, null, 2));
-        console.log('Vacant apartments data updated and saved to file.');
-        return data;
-    } catch (err) {
-        console.error('Error fetching vacant apartments:', err);
-        throw err;
-    }
-};
-
-// Функция для получения данных (из файла или API)
-const getVacantApartments = async () => {
-    const updateNeeded = await shouldUpdateData();
-    if (updateNeeded) {
-        return await fetchAndSaveVacantApartments();
-    } else {
-        const data = await fs.readFile(VACANT_APARTMENTS_FILE, 'utf8');
-        return JSON.parse(data);
-    }
-};
 
 client.on("qr", (qr) => {
     qrcode.generate(qr, { small: true });
@@ -95,7 +50,6 @@ client.on("auth_failure", (msg) => {
 
 client.on("ready", async () => {
     console.log("Client is ready!");
-    await getVacantApartments();
 });
 
 const activeTimers = new Map();
@@ -152,56 +106,27 @@ client.on("message", async (msg) => {
     const chatId = msg.from;
     const clientName = msg._data.notifyName
     const message = msg.body;
-
-    // console.log(chatId);
-    // return
     
+    // let user = await User.findOne({ phone: chatId }) || new User({ phone: chatId});
+    let user = await User.findOne({ phone: chatId })
 
     if (message.toLocaleLowerCase().includes("restart")) {
         await User.findOneAndDelete({phone: chatId})
         return
     }
 
-    if (!message || message.trim() === "") {
-        return client.sendMessage(chatId, "Пожалуйста, отправьте сообщение.");
-    }
-
-    // Находим или создаем пользователя
-    let user = await User.findOne({ phone: chatId });
-
     if (user && user?.isGandon) {
         client.sendMessage(chatId, "Здравствуйте, к сожалению в данный момент нет свободных квартир.")
+        updateLastMessages(user, "Здравствуйте, к сожалению в данный момент нет свободных квартир.", "assistant");
+        await user.save()
         return;
-    }
-
-    if (user?.additionalPrompt) {
-        const answer = await gptResponse(message, user.lastMessages, additionalPromot);
-        if (answer.toLocaleLowerCase().includes("инструкция")) {
-            const apartmentId = user?.apartment?.apartment_id
-            const apartment = await Apartments.findOne({apartment_id: apartmentId})
-    
-            if (!apartment) {
-                await client.sendMessage(chatId, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер");
-                updateLastMessages(user, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер", "assistant");
-                client.sendMessage("120363162509779134@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать wa.me//+${chatId.slice(0, -5)}`)
-            } else {
-                await client.sendMessage(chatId, apartment.links[0]);
-                updateLastMessages(user, apartment.links[0], "assistant");
-                await client.sendMessage(chatId, apartment.text);
-                updateLastMessages(user, apartment.text, "assistant");
-            }
-            return
-        }
-        client.sendMessage(chatId, answer)
-        updateLastMessages(user, answer, "assistant")
-        user.save()
-        return
     }
 
     if (!user) {
         user = new User({ phone: chatId, last_message_date: new Date(msg.timestamp) });
         client.sendMessage(chatId, startMessage);
         const today = new Date();
+        updateLastMessages(user, message, "user");
         updateLastMessages(user, startMessage, "assistant");
         user.last_message_date = new Date(today);
         await user.save();
@@ -215,6 +140,7 @@ client.on("message", async (msg) => {
         
         if (!lastMessageDate || lastMessageDateObj.toDateString() != today.toDateString()) {
             client.sendMessage(chatId, startMessage);
+            updateLastMessages(user, message, "user");
             updateLastMessages(user, startMessage, "assistant");
             user.last_message_date = new Date(today);
             await user.save();
@@ -222,11 +148,16 @@ client.on("message", async (msg) => {
         }
     }
 
+    if (message) {
+        updateLastMessages(user, message, "user");
+        await user.save()
+    }
+
     if (user?.waitAgreement?.status) {
         if (user?.waitAgreement?.what?.name === "chooseApartment") {
             const agreementAnswer = await gptResponse(message, user.lastMessages, agreementPrompt);
             if (agreementAnswer === "1" || agreementAnswer === 1) {
-                client.sendMessage(chatId, "Отлично, сейчас создам бронь")
+                await client.sendMessage(chatId, "Отлично, сейчас создам бронь")
                 updateLastMessages(user, "Отлично, сейчас создам бронь", "assistant")
                 user.waitAgreement = {status: false, what: {}}
                 const userData = {
@@ -280,7 +211,7 @@ client.on("message", async (msg) => {
                 await user.save()
                 return
             } else {
-                client.sendMessage("120363162509779134@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать, не можем понять какая квартира нужна wa.me//+${chatId.slice(0, -5)}`)
+                client.sendMessage("120363414549010108@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать, не можем понять какая квартира нужна wa.me//+${chatId.slice(0, -5)}`)
                 return client.sendMessage(chatId, "В скором времени с вами свяжется менеджер")
             }
         }
@@ -333,6 +264,11 @@ client.on("message", async (msg) => {
         
                 activeTimers.set(chatId, timer);
                 return;
+            } else {
+                client.sendMessage("120363414549010108@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать, не может оплатить по каспи`)
+                updateLastMessages(user, `В скором времени с вами свяжется менеджер`, "user")
+                await user.save()
+                return client.sendMessage(chatId, "В скором времени с вами свяжется менеджер")
             }
         }
     }
@@ -413,256 +349,32 @@ client.on("message", async (msg) => {
         }
     }
 
-    if (message.toLocaleLowerCase().includes("не понял")) {
-        client.sendMessage("120363162509779134@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать wa.me//+${chatId.slice(0, -5)}`)
-        return client.sendMessage(chatId, "В скором времени с вами свяжется менеджер")
-    }
-
-    // Обновляем массив lastMessages
-    if (message) {
-        updateLastMessages(user, message, "user");
-    }
-
-    const todayForPrompt = new Date();
-    const answer = await gptResponse(message, user.lastMessages, `- Текущая дата — ${todayForPrompt.getFullYear()}-${todayForPrompt.getMonth() + 1}-${todayForPrompt.getDate()}, используй её для контекста, если даты указаны относительно (например, "на следующей неделе").` + prompt);
-    const answerData = await handleMessage(answer)
-    console.log("answerData = ", answerData);
-    
-
-    if (answerData?.what === 1) {
-        const [year, month, day] = answerData.dateIn.split("-");
-        const beginDate = `${day}.${month}.${year}`
-        const [year2, month2, day2] = answerData.dateOut.split("-");
-        const endDate = `${day2}.${month2}.${year2}`
-        const response = await axios.get(`${process.env.vacantApartments}humans=${answerData.persons}&begin_date=${beginDate}&end_date=${endDate}`)
-        // console.log("respone in getApartments = ", response);
-        
-        const vacantApartments = response.data.apartments
-        const dataToLink = vacantApartments.map((item) => {
-            return {
-                apartment_id: item.id,
-                apartment_title: item.title,
-                amount: item.price,
-                is_special_amount: false
-            }
-        })
-        let link = await getLink(answerData.dateIn, answerData.dateOut, dataToLink)
-        if (link === "sosi hui") {
-            globalVar.setVar("")
-            link = await getLink(answerData.dateIn, answerData.dateOut, dataToLink)
-        }
-        if (link === "sosi hui dvazhdy") {
-            client.sendMessage(chatId, "Ошибка при получении ссылки(");
-            updateLastMessages(user, "Ошибка при получении ссылки(", "assistant");
-            await user.save()
-            return
-        }
-        if (link.source.items.length === 0) {
-            client.sendMessage(chatId, `С ${answerData.dateIn} по ${answerData.dateOut} нет свободных квартир`);
-            updateLastMessages(user, `С ${answerData.dateIn} по ${answerData.dateOut} нет свободных квартир`, "assistant");
-            await user.save()
-            return
-        }
-        client.sendMessage(chatId, `С ${answerData.dateIn} по ${answerData.dateOut} подобрано вариантов: ${link.source.items.length}. Для просмотра перейдите по ссылке: ${link.url}`);
-        updateLastMessages(user, `С ${answerData.dateIn} по ${answerData.dateOut} подобрано вариантов: ${link.source.items.length}. Для просмотра перейдите по ссылке: ${link.url}`, "assistant");
-        user.chooseApartments = link.source.items
-        user.bookingDate = {startDate: answerData.dateIn, endDate: answerData.dateOut, personsKol: answerData.persons || 1}
-        await user.save()
-        return
-    }
-
-    if (answerData?.what === 7) {
-        user.bookingDate.startDate = answerData.dateIn
-        if (user.bookingDate.endDate === "") {
-            client.sendMessage(chatId, "Пожалуйста отправьте дату выезда");
-            updateLastMessages(user, "Пожалуйста отправьте дату выезда", "assistant");
-            await user.save()
-            return
-        }
-    }
-
-    if (answerData?.what === 8) {
-        user.bookingDate.endDate = answerData.dateOut
-        if (user.bookingDate.personsKol === 0) {
-            client.sendMessage(chatId, "Пожалуйста отправьте количество персон");
-            updateLastMessages(user, "Пожалуйста отправьте количество персон", "assistant");
-            await user.save()
-            return
-        }
-    }
-
-    if (answerData?.what === 9) {
-        user.bookingDate.personsKol = answerData.persons
-        if (user.bookingDate.startDate !== "" && user.bookingDate.endDate !== "") {
-            const [year, month, day] = user.bookingDate.startDate.split("-");
-            const beginDate = `${day}.${month}.${year}`
-            const [year2, month2, day2] = user.bookingDate.endDate.split("-");
-            const endDate = `${day2}.${month2}.${year2}`
-            const response = await axios.get(`${process.env.vacantApartments}humans=${user.bookingDate.personsKol}&begin_date=${beginDate}&end_date=${endDate}`)
-            // console.log("respone in getApartments = ", response);
-            
-            const vacantApartments = response.data.apartments
-            const dataToLink = vacantApartments.map((item) => {
-                return {
-                    apartment_id: item.id,
-                    apartment_title: item.title,
-                    amount: item.price,
-                    is_special_amount: false
-                }
-            })
-            let link = await getLink(user.bookingDate.startDate, user.bookingDate.endDate, dataToLink)
-            if (link === "sosi hui") {
-                globalVar.setVar("")
-                link = await getLink(user.bookingDate.startDate, user.bookingDate.endDate, dataToLink)
-            }
-            if (link === "sosi hui dvazhdy") {
-                client.sendMessage(chatId, "Ошибка при получении ссылки(");
-                updateLastMessages(user, "Ошибка при получении ссылки(", "assistant");
-                await user.save()
-                return
-            }
-            if (link.source.items.length === 0) {
-                client.sendMessage(chatId, `С ${user.bookingDate.startDate} по ${user.bookingDate.endDate} нет свободных квартир`);
-                updateLastMessages(user, `С ${user.bookingDate.startDate} по ${user.bookingDate.endDate} нет свободных квартир`, "assistant");
-                await user.save()
-                return
-            }
-            client.sendMessage(chatId, `С ${user.bookingDate.startDate} по ${user.bookingDate.endDate} подобрано вариантов: ${link.source.items.length}. Для просмотра перейдите по ссылке: ${link.url}`);
-            updateLastMessages(user, `С ${user.bookingDate.startDate} по ${user.bookingDate.endDate} подобрано вариантов: ${link.source.items.length}. Для просмотра перейдите по ссылке: ${link.url}`, "assistant");
-            user.chooseApartments = link.source.items
-            await user.save()
-            return
-        }
-    }
-
-    if (answerData?.what === 3) {
-        if (answerData?.isAddress) {
-            const [year, month, day] = user.bookingDate.startDate.split("-");
-            const beginDate = `${day}.${month}.${year}`
-            const [year2, month2, day2] = user.bookingDate.endDate.split("-");
-            const endDate = `${day2}.${month2}.${year2}`
-            const response = await axios.get(`${process.env.vacantApartments}begin_date=${beginDate}&end_date=${endDate}`)
-            const vacantApartments = response.data.apartments
-            const chooseApartment = vacantApartments.find((item) => item.address.includes(answerData?.address))
-            if (chooseApartment) {
-                client.sendMessage(chatId, `${chooseApartment.address}, вот на этот адрес, да?`)
-                updateLastMessages(user, `${chooseApartment.address}, вот на этот адрес, да?`, "assistant")
-                user.chooseApartment = chooseApartment
-                user.waitAgreement = {status: true, what: {name: "chooseApartment", chooseApartmentNumber: answerData.chooseApartment}}
-                await user.save()
-                return
-            } else {
-                client.sendMessage("120363162509779134@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать, не можем понять какая квартира нужна wa.me//+${chatId.slice(0, -5)}`)
-                return client.sendMessage(chatId, "В скором времени с вами свяжется менеджер")
-            }
-        } else {
-            const response = await axios.get(`${process.env.vacantApartments}`)
-            const apartments = response.data.apartments
-            const userChooseApartments = user.chooseApartments
-            const chooseApartment = apartments.find((item) => item.id === userChooseApartments[answerData.chooseApartment - 1].apartment_id)
-            client.sendMessage(chatId, `${chooseApartment.address}, вот на этот адрес, да?`)
-            updateLastMessages(user, `${chooseApartment.address}, вот на этот адрес, да?`, "assistant")
-            user.chooseApartment = chooseApartment
-            user.waitAgreement = {status: true, what: {name: "chooseApartment", chooseApartmentNumber: answerData.chooseApartment}}
-            await user.save()
-            return
-        }
-    }
-    
-    if (answerData?.what === 4) {
-        if (user.dontUnderstand === 1) {
-            await User.findOneAndUpdate(
-                { _id: user._id },
-                {
-                    $set: {
-                        isGandon: true,
-                        dontUnderstand: 0,
-                    }
-                },
-                { new: true } // Возвращает обновленный документ, если нужно
-            );
-            client.sendMessage("120363162509779134@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать, не можем понять что он хочет wa.me//+${chatId.slice(0, -5)}`)
-            client.sendMessage(chatId, "В скором времени с вами свяжется менеджер")
-            return
-        }
-        client.sendMessage(chatId, `Не совсем понял вас, вы могли бы уточнить?`)
-        updateLastMessages(user, `Не совсем понял вас, вы могли бы уточнить?`, "assistant")
-        await User.findOneAndUpdate(
-            { _id: user._id },
-            {
-                $set: {
-                    dontUnderstand: 1,
-                }
-            },
-            { new: true } // Возвращает обновленный документ, если нужно
-        );
-        return
-    }
-
-    if (answer.toLocaleLowerCase().includes("оплатил")) {
-        clearTimeout(activeTimers.get(chatId)); // Сбрасываем таймер, если пользователь ответил вовремя
-        activeTimers.delete(chatId);
-        const phone = chatId?.match(/\d+/g)?.join('')
-        const kaspi = await kaspiParser(phone?.slice(1));
-        if (kaspi) {
-            if (parseInt(kaspi) < 20) { //user?.apartment?.amount
-                if (user.temporarySum + parseInt(kaspi) >= 20) { //user?.apartment?.amount
-                    client.sendMessage(chatId, `Вы успешно забронировали, в день заселения мы отправим вам инструкцию`)
-                    updateLastMessages(user, "Вы успешно забронировали, в день заселения мы отправим вам инструкцию", "assistant");
-                    user.temporarySum = 0
-                    user.paid.status = true
-                    user.waitFIO = false
-                    user.additionalPrompt = true
-                } else {
-                    user.temporarySum += parseInt(kaspi)
-                    client.sendMessage(chatId, `К сожалению вы отправили не полную сумму, вы можете еще раз пройти по ссылке и оплатить оставшуюся сумму. После оплаты напишите слово 'Оплатил'`)
-                    updateLastMessages(user, "К сожалению вы отправили не полную сумму, вы можете еще раз пройти по ссылке и оплатить оставшуюся сумму. После оплаты напишите слово 'Оплатил'", "assistant");
-                    user.waitFIO = false
-                }
-            } else {
-                client.sendMessage(chatId, `Вы успешно забронировали, в день заселения мы отправим вам инструкцию`)
-                updateLastMessages(user, "Вы успешно забронировали, в день заселения мы отправим вам инструкцию", "assistant");
-                user.temporarySum = 0
-                user.paid.status = true
-                user.waitFIO = false
-                user.additionalPrompt = true
-            }
-            user.waitFIO = false
-            await user.save()
-            return
-        } else {
-            client.sendMessage(chatId, `Мы не смогли найти вашу оплату, напишите номер телефона в формате '+7 777 777 77 77' по которому провели оплату`)
-            updateLastMessages(user, "Мы не смогли найти вашу оплату, напишите номер телефона в формате '+7 777 777 77 77' по которому провели оплату", "assistant");
-            user.waitFIO = true
-            await user.save()
-            return
-        }
-        return
-    }
-
-    if (answer.toLocaleLowerCase().includes("забронировал")) {
-        const phone = chatId.match(/\d/g).join('');
+    if (user?.specialPhoneForInstruction) {
+        const phone = message?.match(/\d/g)?.join('');
         const isBooked = await fetchBookings(phone)
         if (isBooked?.success) {
-            const sum = isBooked.booked.amount
-            client.sendMessage(chatId, `Стоимость проживания ${sum} + депозит`)
-            updateLastMessages(user, `Стоимость проживания ${sum} + депозит`, "assistant")
-            client.sendMessage(chatId, depo)
-            updateLastMessages(user, depo, "assistant")
-            client.sendMessage(chatId, "Можете ли провести оплату по каспи?")
-            updateLastMessages(user, "Можете ли провести оплату по каспи?", "assistant")
-            user.waitAgreement = {status: true, what: {name: "mayToKaspi", sum}}
+            const apartmentId = user?.apartment?.apartment_id
+            const apartment = await Apartments.findOne({apartment_id: apartmentId})
     
-            // Атомарное обновление первого шага
+            if (!apartment) {
+                await client.sendMessage(chatId, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер");
+                updateLastMessages(user, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер", "assistant");
+                client.sendMessage("120363414549010108@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать wa.me//+${chatId.slice(0, -5)}`)
+                await user.save()
+                return
+            } else {
+                await client.sendMessage(chatId, apartment.links[0]);
+                await client.sendMessage(chatId, apartment.text);
+            }
             await User.findOneAndUpdate(
                 { _id: user._id },
                 {
                     $set: {
                         "paid.apartment_id": isBooked.booked.apartment_id,
                         chooseApartment: isBooked.booked,
-                        waitAgreement: {statsu: true, what: {name: "mayToKaspi", sum}},
                         apartments: [...user.apartments, isBooked.booked],
-                        apartment: isBooked.booked
+                        apartment: isBooked.booked,
+                        lastMessages: [...user.lastMessages, {role: "assistant", content: apartment.links[0]}, {role: "assistant", content: apartment.text}]
                     }
                 },
                 { new: true } // Возвращает обновленный документ, если нужно
@@ -671,39 +383,246 @@ client.on("message", async (msg) => {
         } else {
             client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить");
             updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить", "assistant");
-            user.specialPhone = true
+            user.specialPhoneForInstruction = true
             await user.save();
             return
         }
     }
+    
+    const answer = await gptResponse(message, user.lastMessages, prompt);
+    console.log("answer = ", answer);
+    
+    if (answer.includes("client")) {
+        await client.sendMessage(chatId, answer.replace(" client", ""));
+        updateLastMessages(user, answer.replace(" client", ""), "assistant");
+    } else if (answer.includes("admin")) {
+        const jsonMatch = answer.match(/\{.*\}/);
+        let jsonStr = null;
+        let data;
 
-    if (answer.toLocaleLowerCase().includes("инструкция")) {
-        const apartmentId = user?.apartment?.apartment_id
-        const apartment = await Apartments.findOne({apartment_id: apartmentId})
-
-        if (!apartment) {
-            await client.sendMessage(chatId, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер");
-            updateLastMessages(user, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер", "assistant");
-            client.sendMessage("120363162509779134@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать wa.me//+${chatId.slice(0, -5)}`)
+        if (jsonMatch) {
+            jsonStr = jsonMatch[0];
+            console.log("JSON найден:", jsonStr);
         } else {
-            await client.sendMessage(chatId, apartment.links[0]);
-            updateLastMessages(user, apartment.links[0], "assistant");
-            await client.sendMessage(chatId, apartment.text);
-            updateLastMessages(user, apartment.text, "assistant");
+            console.log("JSON не найден, обработка текста");
         }
-        return
+
+        try {
+            data = jsonStr ? JSON.parse(jsonStr) : answer.replace(" admin", ""); // Если jsonStr найден, парсим, иначе просто берем текст
+        } catch (e) {
+            data = jsonStr; // Если парсинг не удался, сохраняем строку
+        }
+
+        console.log("data = ", data);
+
+        if (typeof data === "object") {
+            const phone = chatId?.match(/\d+/g)?.join('')
+            switch (data.type) {
+            case 1: // Полные данные для брони
+                const [year, month, day] = data.checkin.split("-");
+                const beginDate = `${day}.${month}.${year}`
+                const [year2, month2, day2] = data.checkout.split("-");
+                const endDate = `${day2}.${month2}.${year2}`
+                const response = await axios.get(`${process.env.vacantApartments}humans=${data.guests}&begin_date=${beginDate}&end_date=${endDate}`)
+                // console.log("respone in getApartments = ", response);
+                
+                const vacantApartments = response.data.apartments
+                const dataToLink = vacantApartments.map((item) => {
+                    return {
+                        apartment_id: item.id,
+                        apartment_title: item.title,
+                        amount: item.price,
+                        is_special_amount: false
+                    }
+                })
+                let link = await getLink(data.checkin, data.checkout, dataToLink)
+                if (link === "sosi hui") {
+                    globalVar.setVar("")
+                    link = await getLink(data.checkin, data.checkout, dataToLink)
+                }
+                if (link === "sosi hui dvazhdy") {
+                    client.sendMessage(chatId, "Ошибка при получении ссылки(");
+                    updateLastMessages(user, "Ошибка при получении ссылки(", "assistant");
+                    await user.save()
+                    return
+                }
+                if (link.source.items.length === 0) {
+                    client.sendMessage(chatId, `С ${data.checkin} по ${data.checkout} нет свободных квартир`);
+                    updateLastMessages(user, `С ${data.checkin} по ${data.checkout} нет свободных квартир`, "assistant");
+                    await user.save()
+                    return
+                }
+                client.sendMessage(chatId, `С ${data.checkin} по ${data.checkout} подобрано вариантов: ${link.source.items.length}. Для просмотра перейдите по ссылке: ${link.url}`);
+                updateLastMessages(user, `С ${data.checkin} по ${data.checkout} подобрано вариантов: ${link.source.items.length}. Для просмотра перейдите по ссылке: ${link.url}`, "assistant");
+                user.chooseApartments = link.source.items
+                user.bookingDate = {startDate: data.checkin, endDate: data.checkout, personsKol: data.guests || 1}
+                await user.save()
+                return
+            case 3: // Выбор варианта
+                if (data?.address) {
+                    const [year, month, day] = user.bookingDate.startDate.split("-");
+                    const beginDate = `${day}.${month}.${year}`
+                    const [year2, month2, day2] = user.bookingDate.endDate.split("-");
+                    const endDate = `${day2}.${month2}.${year2}`
+                    const response = await axios.get(`${process.env.vacantApartments}begin_date=${beginDate}&end_date=${endDate}`)
+                    const vacantApartments = response.data.apartments
+                    const chooseApartment = vacantApartments.find((item) => item.address.includes(data?.address))
+                    if (chooseApartment) {
+                        client.sendMessage(chatId, `${chooseApartment.address}, вот на этот адрес, да?`)
+                        updateLastMessages(user, `${chooseApartment.address}, вот на этот адрес, да?`, "assistant")
+                        user.chooseApartment = chooseApartment
+                        user.waitAgreement = {status: true, what: {name: "chooseApartment", chooseApartmentNumber: data?.address}}
+                        await user.save()
+                        return
+                    } else {
+                        client.sendMessage("120363414549010108@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать, не можем понять какая квартира нужна wa.me//+${chatId.slice(0, -5)}`)
+                        return client.sendMessage(chatId, "В скором времени с вами свяжется менеджер")
+                    }
+                } else {
+                    const response = await axios.get(`${process.env.vacantApartments}`)
+                    const apartments = response.data.apartments
+                    const userChooseApartments = user.chooseApartments
+                    const chooseApartment = apartments.find((item) => item.id === userChooseApartments[data?.choice - 1].apartment_id)
+                    client.sendMessage(chatId, `${chooseApartment.address}, вот на этот адрес, да?`)
+                    updateLastMessages(user, `${chooseApartment.address}, вот на этот адрес, да?`, "assistant")
+                    user.chooseApartment = chooseApartment
+                    user.waitAgreement = {status: true, what: {name: "chooseApartment", chooseApartmentNumber: data?.choice}}
+                    await user.save()
+                    return
+                }
+                // Логика выбора варианта по data.choice или data.address
+                break;
+            case 4: // Оплатил
+                clearTimeout(activeTimers.get(chatId)); // Сбрасываем таймер, если пользователь ответил вовремя
+                activeTimers.delete(chatId);
+                const kaspi = await kaspiParser(phone?.slice(1));
+                if (kaspi) {
+                    if (parseInt(kaspi) < 20) { //user?.apartment?.amount
+                        if (user.temporarySum + parseInt(kaspi) >= 20) { //user?.apartment?.amount
+                            client.sendMessage(chatId, `Вы успешно забронировали, в день заселения мы отправим вам инструкцию`)
+                            updateLastMessages(user, "Вы успешно забронировали, в день заселения мы отправим вам инструкцию", "assistant");
+                            user.temporarySum = 0
+                            user.paid.status = true
+                            user.waitFIO = false
+                            user.additionalPrompt = true
+                        } else {
+                            user.temporarySum += parseInt(kaspi)
+                            client.sendMessage(chatId, `К сожалению вы отправили не полную сумму, вы можете еще раз пройти по ссылке и оплатить оставшуюся сумму. После оплаты напишите слово 'Оплатил'`)
+                            updateLastMessages(user, "К сожалению вы отправили не полную сумму, вы можете еще раз пройти по ссылке и оплатить оставшуюся сумму. После оплаты напишите слово 'Оплатил'", "assistant");
+                            user.waitFIO = false
+                        }
+                    } else {
+                        client.sendMessage(chatId, `Вы успешно забронировали, в день заселения мы отправим вам инструкцию`)
+                        updateLastMessages(user, "Вы успешно забронировали, в день заселения мы отправим вам инструкцию", "assistant");
+                        user.temporarySum = 0
+                        user.paid.status = true
+                        user.waitFIO = false
+                        user.additionalPrompt = true
+                    }
+                    user.waitFIO = false
+                    await user.save()
+                    return
+                } else {
+                    client.sendMessage(chatId, `Мы не смогли найти вашу оплату, напишите номер телефона в формате '+7 777 777 77 77' по которому провели оплату`)
+                    updateLastMessages(user, "Мы не смогли найти вашу оплату, напишите номер телефона в формате '+7 777 777 77 77' по которому провели оплату", "assistant");
+                    user.waitFIO = true
+                    await user.save()
+                    return
+                }
+            case 5: // инструкция 
+                const apartmentId = user?.apartment?.apartment_id
+                const apartment = await Apartments.findOne({apartment_id: apartmentId})
+        
+                if (!apartment) {
+                    await client.sendMessage(chatId, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер");
+                    updateLastMessages(user, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер", "assistant");
+                    client.sendMessage("120363414549010108@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать wa.me//+${chatId.slice(0, -5)}`)
+                } else {
+                    await client.sendMessage(chatId, apartment.links[0]);
+                    updateLastMessages(user, apartment.links[0], "assistant");
+                    await client.sendMessage(chatId, apartment.text);
+                    updateLastMessages(user, apartment.text, "assistant");
+                }
+                await user.save()
+                return
+            case 7: // airbnb
+                const isBooked = await fetchBookings(phone)
+                if (isBooked?.success) {
+                    const apartmentId = user?.apartment?.apartment_id
+                    const apartment = await Apartments.findOne({apartment_id: apartmentId})
+            
+                    if (!apartment) {
+                        await client.sendMessage(chatId, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер");
+                        updateLastMessages(user, "К сожалению мы не смогли найти инструкцию по этой квартире, с вами свяжется менеджер", "assistant");
+                        client.sendMessage("120363414549010108@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать wa.me//+${chatId.slice(0, -5)}`)
+                        await user.save()
+                        return
+                    } else {
+                        await client.sendMessage(chatId, apartment.links[0]);
+                        await client.sendMessage(chatId, apartment.text);
+                    }
+                    await User.findOneAndUpdate(
+                        { _id: user._id },
+                        {
+                            $set: {
+                                "paid.apartment_id": isBooked.booked.apartment_id,
+                                chooseApartment: isBooked.booked,
+                                apartments: [...user.apartments, isBooked.booked],
+                                apartment: isBooked.booked,
+                                lastMessages: [...user.lastMessages, {role: "assistant", content: apartment.links[0]}, {role: "assistant", content: apartment.text}]
+                            }
+                        },
+                        { new: true } // Возвращает обновленный документ, если нужно
+                    );
+                    return;
+                } else {
+                    client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить");
+                    updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить", "assistant");
+                    user.specialPhoneForInstruction = true
+                    await user.save();
+                    return
+                }
+            }
+        } else if (data === "забронировал") {
+            const isBooked = await fetchBookings(phone)
+            if (isBooked?.success) {
+                const sum = isBooked.booked.amount * calculateDaysBetweenDates(isBooked.booked.begin_date, isBooked.booked.end_date)
+                await client.sendMessage(chatId, `Стоимость проживания ${sum} + депозит`)
+                await client.sendMessage(chatId, depo)
+                await client.sendMessage(chatId, "Можете ли провести оплату по каспи?")
+                await User.findOneAndUpdate(
+                    { _id: user._id },
+                    {
+                        $set: {
+                            "paid.apartment_id": isBooked.booked.apartment_id,
+                            chooseApartment: isBooked.booked,
+                            waitAgreement: {status: true, what: {name: "mayToKaspi", sum}},
+                            apartments: [...user.apartments, isBooked.booked],
+                            apartment: isBooked.booked,
+                            lastMessages: [...user.lastMessages, {role: "assistant", content: `Стоимость проживания ${sum} + депозит`}, {role: "assistant", content: depo}, {role: "assistant", content: "Можете ли провести оплату по каспи?"}]
+
+                        }
+                    },
+                    { new: true } // Возвращает обновленный документ, если нужно
+                );
+                return;
+            } else {
+                client.sendMessage(chatId, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить");
+                updateLastMessages(user, "К сожалению мы не смогли найти ваш бронь, отправьте номер в формате '+7 777 777 77 77' по которому забронировали квартиру что бы мы могли проверить", "assistant");
+                user.specialPhone = true
+                await user.save();
+                return
+            }
+        }
+    } else {
+        await client.sendMessage(chatId, "Извините, я не понял ваш запрос. Уточните, пожалуйста!");
+        updateLastMessages(user, "Извините, я не понял ваш запрос. Уточните, пожалуйста", "assistant");
     }
-
-    client.sendMessage(chatId, answer);
-    updateLastMessages(user, answer, "assistant");
-
-    // Сохраняем изменения в базе данных
-    await user.save();
 });
 
 const updateLastMessages = (user, message, role) => {
     user.lastMessages.push({ role, content: message });
-    if (user.lastMessages.length > 10) {
+    if (user.lastMessages.length > 20) {
         user.lastMessages.shift();
     }
 };
@@ -729,7 +648,7 @@ const gptResponse = async (text, lastMessages, prompt) => {
     const response = await axios.post(
         "https://api.openai.com/v1/chat/completions",
         {
-            model: "gpt-3.5-turbo",
+            model: "gpt-4o",
             messages,
         },
         {
