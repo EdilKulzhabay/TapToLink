@@ -35,6 +35,9 @@ const client = new Client({
     },
 });
 
+const NOTIFICATION_DELAY = 300000; // 5 минут в миллисекундах
+const DELETION_DELAY = 300000;
+
 
 client.on("qr", (qr) => {
     qrcode.generate(qr, { small: true });
@@ -237,32 +240,48 @@ client.on("message", async (msg) => {
                     { new: true } // Возвращает обновленный документ, если нужно
                 );
         
-                const timer = setTimeout(async () => {
+                const notificationTimer = setTimeout(async () => {
                     try {
-                        console.log(`Удаляем бронь пользователя: ${chatId}`);
-                        await deleteBooking({ apartment_id: user.apartment.apartment_id, id: user.apartment.id });
-        
-                        // Атомарное обновление второго шага
-                        await User.findOneAndUpdate(
-                            { _id: user._id },
-                            {
-                                $set: {
-                                    specialPhone: false,
-                                    apartment: {},
-                                    paid: { apartment_id: "", status: false }
-                                }
-                            },
-                            { new: true }
-                        );
-        
-                        client.sendMessage(chatId, "Ваша бронь была удалена из-за отсутствия ответа.");
-                        updateLastMessages(user, "Ваша бронь была удалена из-за отсутствия ответа.", "assistant");
+                        console.log(`Отправляем уведомление пользователю: ${chatId}`);
+                        await client.sendMessage(chatId, "Ваша бронь будет удалена через 5 минут, если вы не подтвердите оплату.");
+                        updateLastMessages(user, "Ваша бронь будет удалена через 5 минут, если вы не подтвердите оплату.", "assistant");
+                        await user.save();
+
+                        // Второй таймер: удаление брони еще через 5 минут
+                        const deletionTimer = setTimeout(async () => {
+                            try {
+                                console.log(`Удаляем бронь пользователя: ${chatId}`);
+                                await deleteBooking({ apartment_id: user.apartment.apartment_id, id: user.apartment.id });
+
+                                await User.findOneAndUpdate(
+                                    { _id: user._id },
+                                    {
+                                        $set: {
+                                            specialPhone: false,
+                                            apartment: {},
+                                            paid: { apartment_id: "", status: false }
+                                        }
+                                    },
+                                    { new: true }
+                                );
+
+                                client.sendMessage(chatId, "Ваша бронь была удалена из-за отсутствия ответа.");
+                                updateLastMessages(user, "Ваша бронь была удалена из-за отсутствия ответа.", "assistant");
+                                await user.save();
+                            } catch (error) {
+                                console.error("Ошибка во втором таймере:", error);
+                            }
+                        }, DELETION_DELAY);
+
+                        // Сохраняем второй таймер
+                        activeTimers.set(`${chatId}_deletion`, deletionTimer);
                     } catch (error) {
-                        console.error("Ошибка в таймере:", error);
+                        console.error("Ошибка в первом таймере:", error);
                     }
-                }, 30000); // 30 секунд для теста, замените на 60000 для минуты
-        
-                activeTimers.set(chatId, timer);
+                }, NOTIFICATION_DELAY);
+
+                // Сохраняем первый таймер
+                activeTimers.set(`${chatId}_notification`, notificationTimer);
                 return;
             } else {
                 client.sendMessage("120363414549010108@g.us", `Клиенту ${clientName} с номером '${chatId.slice(0, -5)}' нужно написать, не может оплатить по каспи`)
@@ -493,8 +512,10 @@ client.on("message", async (msg) => {
                 // Логика выбора варианта по data.choice или data.address
                 break;
             case 4: // Оплатил
-                clearTimeout(activeTimers.get(chatId)); // Сбрасываем таймер, если пользователь ответил вовремя
-                activeTimers.delete(chatId);
+                clearTimeout(activeTimers.get(`${chatId}_notification`));
+                clearTimeout(activeTimers.get(`${chatId}_deletion`));
+                activeTimers.delete(`${chatId}_notification`);
+                activeTimers.delete(`${chatId}_deletion`);
                 const kaspi = await kaspiParser(phone?.slice(1));
                 if (kaspi) {
                     if (parseInt(kaspi) < 20) { //user?.apartment?.amount
